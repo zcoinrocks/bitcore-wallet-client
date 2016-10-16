@@ -105,12 +105,20 @@ helpers.generateUtxos = function(scriptType, publicKeyRing, path, requiredSignat
   return utxos;
 };
 
-helpers.createAndJoinWallet = function(clients, m, n, cb) {
+helpers.createAndJoinWallet = function(clients, m, n, opts, cb) {
+  if (_.isFunction(opts)) {
+    cb = opts;
+    opts = null;
+  }
+
+  opts = opts || {};
+
   clients[0].seedFromRandomWithMnemonic({
     network: 'testnet'
   });
   clients[0].createWallet('mywallet', 'creator', m, n, {
-    network: 'testnet'
+    network: 'testnet',
+    singleAddress: !!opts.singleAddress,
   }, function(err, secret) {
     should.not.exist(err);
 
@@ -987,7 +995,7 @@ describe('client API', function() {
   describe('Wallet Creation', function() {
     it('should fail to create wallet in bogus device', function(done) {
       clients[0].seedFromRandomWithMnemonic();
-      clients[0].incorrectDerivation = true;
+      clients[0].keyDerivationOk = false;
       clients[0].createWallet('mywallet', 'pepe', 1, 1, {}, function(err, secret) {
         should.exist(err);
         should.not.exist(secret);
@@ -1158,7 +1166,7 @@ describe('client API', function() {
         network: 'testnet'
       }, function(err, secret) {
         should.not.exist(err);
-        clients[1].incorrectDerivation = true;
+        clients[1].keyDerivationOk = false;
         clients[1].joinWallet(secret, 'guest', {}, function(err, wallet) {
           should.exist(err);
           done();
@@ -1629,7 +1637,7 @@ describe('client API', function() {
     });
     it('should fail if key derivation is not ok', function(done) {
       helpers.createAndJoinWallet(clients, 1, 1, function() {
-        clients[0].incorrectDerivation = true;
+        clients[0].keyDerivationOk = false;
         clients[0].createAddress(function(err, address) {
           should.exist(err);
           should.not.exist(address);
@@ -2304,25 +2312,23 @@ describe('client API', function() {
         ];
 
         var tmp = clients[0]._getCreateTxProposalArgs;
-        clients[0]._getCreateTxProposalArgs(opts, function(err, args) {
-          should.not.exist(err);
+        var args = clients[0]._getCreateTxProposalArgs(opts);
 
-          clients[0]._getCreateTxProposalArgs = function(opts, cb) {
-            return cb(null, args);
-          };
-          async.each(tamperings, function(tamperFn, next) {
-            helpers.tamperResponse(clients[0], 'post', '/v2/txproposals/', args, tamperFn, function() {
-              clients[0].createTxProposal(opts, function(err, txp) {
-                should.exist(err, tamperFn);
-                err.should.be.an.instanceOf(Errors.SERVER_COMPROMISED);
-                next();
-              });
+        clients[0]._getCreateTxProposalArgs = function(opts) {
+          return args;
+        };
+        async.each(tamperings, function(tamperFn, next) {
+          helpers.tamperResponse(clients[0], 'post', '/v2/txproposals/', args, tamperFn, function() {
+            clients[0].createTxProposal(opts, function(err, txp) {
+              should.exist(err, tamperFn);
+              err.should.be.an.instanceOf(Errors.SERVER_COMPROMISED);
+              next();
             });
-          }, function(err) {
-            should.not.exist(err);
-            clients[0]._getCreateTxProposalArgs = tmp;
-            done();
           });
+        }, function(err) {
+          should.not.exist(err);
+          clients[0]._getCreateTxProposalArgs = tmp;
+          done();
         });
       });
       it('Should fail to publish when not enough available UTXOs', function(done) {
@@ -3505,33 +3511,6 @@ describe('client API', function() {
         });
       });
     });
-    it('should be possible to remove a note', function(done) {
-      clients[0].editTxNote({
-        txid: '123',
-        body: 'note body'
-      }, function(err) {
-        should.not.exist(err);
-        clients[0].getTxNote({
-          txid: '123',
-        }, function(err, note) {
-          should.not.exist(err);
-          should.exist(note);
-          clients[0].editTxNote({
-            txid: '123',
-            body: null,
-          }, function(err) {
-            should.not.exist(err);
-            clients[0].getTxNote({
-              txid: '123',
-            }, function(err, note) {
-              should.not.exist(err);
-              note.should.equal('');
-              done();
-            });
-          });
-        });
-      });
-    });
     it('should get all notes edited past a given date', function(done) {
       var clock = sinon.useFakeTimers('Date');
       async.series([
@@ -3648,41 +3627,7 @@ describe('client API', function() {
 
         importedClient = helpers.newClient(app);
         importedClient.import(exported);
-        importedClient.incorrectDerivation.should.equal(false);
       });
-
-
-      it('should handle wrong derivation', function(done) {
-        var exported = JSON.parse(clients[0].export());
-
-        // Tamper export with a wrong xpub
-        exported.xPubKey = 'tpubD6NzVbkrYhZ4XJEQQWBgysPKJcBv8zLhHpfhcw4RyhakMxmffNRRRFDUe1Zh7fxvjt1FdNJcaxHgqxyKLL8XiZug7C8KJFLFtGfPVBcY6Nb';
-
-        importedClient = helpers.newClient(app);
-        should.not.exist(importedClient.incorrectDerivation);
-
-        importedClient.on('derivation-error', function() {
-          importedClient.incorrectDerivation.should.equal(true);
-          done();
-        });
-
-        importedClient.import(JSON.stringify(exported));
-      });
-
-
-      it('should skip derivation check if commanded', function() {
-        var exported = JSON.parse(clients[0].export());
-
-        // Tamper export with a wrong xpub
-        exported.xPubKey = 'tpubD6NzVbkrYhZ4XJEQQWBgysPKJcBv8zLhHpfhcw4RyhakMxmffNRRRFDUe1Zh7fxvjt1FdNJcaxHgqxyKLL8XiZug7C8KJFLFtGfPVBcY6Nb';
-
-        importedClient = helpers.newClient(app);
-        importedClient.import(JSON.stringify(exported), {
-          skipKeyValidation: true
-        });
-        should.not.exist(importedClient.incorrectDerivation);
-      });
-
 
       it('should export without signing rights', function() {
         clients[0].canSign().should.be.true;
@@ -3693,6 +3638,31 @@ describe('client API', function() {
         importedClient = helpers.newClient(app);
         importedClient.import(exported);
         importedClient.canSign().should.be.false;
+      });
+
+      it('should export & import encrypted locked', function() {
+        clients[0].setPrivateKeyEncryption('password');
+        clients[0].lock();
+
+        var exported = clients[0].export();
+
+        importedClient = helpers.newClient(app);
+        importedClient.import(exported);
+
+        importedClient.isPrivKeyEncrypted().should.be.true;
+      });
+
+      it('should export & import encrypted unlocked', function() {
+        clients[0].setPrivateKeyEncryption('password');
+        clients[0].lock();
+        clients[0].unlock('password');
+
+        var exported = clients[0].export();
+
+        importedClient = helpers.newClient(app);
+        importedClient.import(exported);
+
+        importedClient.isPrivKeyEncrypted().should.be.false;
       });
 
       it('should export & import with mnemonics + BWS', function(done) {
@@ -3736,6 +3706,37 @@ describe('client API', function() {
           c2.walletName.should.equal(walletName);
           c2.copayerName.should.equal(copayerName);
           done();
+        });
+      });
+    });
+
+    describe('#validateKeyDerivation', function() {
+      beforeEach(function(done) {
+        helpers.createAndJoinWallet(clients, 1, 1, function() {
+          done();
+        });
+      });
+      it('should validate key derivation', function(done) {
+        clients[0].validateKeyDerivation({}, function(err, isValid) {
+          should.not.exist(err);
+          isValid.should.be.true;
+          clients[0].keyDerivationOk.should.be.true;
+
+          var exported = JSON.parse(clients[0].export());
+
+          // Tamper export with a wrong xpub
+          exported.xPubKey = 'tpubD6NzVbkrYhZ4XJEQQWBgysPKJcBv8zLhHpfhcw4RyhakMxmffNRRRFDUe1Zh7fxvjt1FdNJcaxHgqxyKLL8XiZug7C8KJFLFtGfPVBcY6Nb';
+
+          var importedClient = helpers.newClient(app);
+          should.not.exist(importedClient.keyDerivationOk);
+
+          importedClient.import(JSON.stringify(exported));
+          importedClient.validateKeyDerivation({}, function(err, isValid) {
+            should.not.exist(err);
+            isValid.should.be.false;
+            importedClient.keyDerivationOk.should.be.false;
+            done();
+          });
         });
       });
     });
@@ -4227,6 +4228,76 @@ describe('client API', function() {
                 proxy.signTxProposal(txp, function(err, txp) {
                   should.not.exist(err);
                   proxy.broadcastTxProposal(txp, function(err, txp) {
+                    should.not.exist(err);
+                    txp.status.should.equal('broadcasted');
+                    should.exist(txp.txid);
+                    cb();
+                  });
+                });
+              }, function(err) {
+                next(err);
+              });
+            });
+          },
+        ],
+        function(err) {
+          should.not.exist(err);
+          done();
+        }
+      );
+    });
+    it('should be able to sign from airgapped client with mnemonics (with unencrypted xpubkey ring)', function(done) {
+      var client = helpers.newClient(app);
+      client.seedFromRandomWithMnemonic({
+        network: 'testnet',
+        passphrase: 'passphrase',
+      });
+
+      var mnemonic = client.getMnemonic();
+      client.setPrivateKeyEncryption('password');
+      client.lock();
+      client.isPrivKeyEncrypted().should.be.true;
+
+      async.waterfall([
+
+          function(next) {
+            client.createWallet('mywallet', 'creator', 1, 1, {
+              network: 'testnet'
+            }, function(err) {
+              should.not.exist(err);
+              client.createAddress(function(err, address) {
+                should.not.exist(err);
+                should.exist(address.address);
+                blockchainExplorerMock.setUtxo(address, 1, 1);
+                var opts = {
+                  amount: 1200000,
+                  toAddress: 'n2TBMPzPECGUfcT2EByiTJ12TPZkhN2mN5',
+                  message: 'hello 1-1',
+                };
+                client.sendTxProposal(opts, next);
+              });
+            });
+          },
+          function(txp, next) {
+            should.exist(txp);
+            client.getTxProposals({
+              forAirGapped: true,
+              doNotEncryptPkr: true,
+            }, next);
+          },
+          function(bundle, next) {
+            var signatures = Client.signTxProposalFromAirGapped(mnemonic, bundle.txps[0], bundle.unencryptedPkr, bundle.m, bundle.n, {passphrase: 'passphrase', account: 0, derivationStrategy: 'BIP44'});
+            next(null, signatures);
+          },
+          function(signatures, next) {
+            client.getTxProposals({}, function(err, txps) {
+              should.not.exist(err);
+              var txp = txps[0];
+              txp.signatures = signatures;
+              async.each(txps, function(txp, cb) {
+                client.signTxProposal(txp, function(err, txp) {
+                  should.not.exist(err);
+                  client.broadcastTxProposal(txp, function(err, txp) {
                     should.not.exist(err);
                     txp.status.should.equal('broadcasted');
                     should.exist(txp.txid);
@@ -4972,45 +5043,24 @@ describe('client API', function() {
         args: [1, 'bit'],
         expected: '0',
       }, {
+        args: [1, 'bit', {
+          fullPrecision: true
+        }],
+        expected: '0.01',
+      }, {
         args: [1, 'btc'],
         expected: '0.00',
       }, {
-        args: [0, 'bit'],
-        expected: '0',
-      }, {
-        args: [12345678, 'bit'],
-        expected: '123,457',
-      }, {
-        args: [12345678, 'btc'],
-        expected: '0.123457',
-      }, {
-        args: [12345611, 'btc'],
-        expected: '0.123456',
-      }, {
-        args: [1234, 'btc'],
-        expected: '0.000012',
-      }, {
-        args: [1299, 'btc'],
-        expected: '0.000013',
-      }, {
-        args: [1234567899999, 'btc'],
-        expected: '12,345.679',
-      }, {
-        args: [12345678, 'bit', {
-          thousandsSeparator: '.'
+        args: [1, 'btc', {
+          fullPrecision: true
         }],
-        expected: '123.457',
-      }, {
-        args: [12345678, 'btc', {
-          decimalSeparator: ','
-        }],
-        expected: '0,123457',
+        expected: '0.00000001',
       }, {
         args: [1234567899999, 'btc', {
           thousandsSeparator: ' ',
           decimalSeparator: ','
         }],
-        expected: '12 345,679',
+        expected: '12 345,678999',
       }, ];
 
       _.each(cases, function(testCase) {
@@ -5180,44 +5230,12 @@ describe('client API', function() {
     });
   });
 
-  describe('No Privacy', function() {
+  describe('Single-address wallets', function() {
     beforeEach(function(done) {
-      clients[0].seedFromRandomWithMnemonic({
-        network: 'testnet',
-        noPrivacy: true,
-      });
-      clients[0].createWallet('auditable wallet', 'creator', 1, 1, {
-        network: 'testnet',
-      }, function(err) {
-        should.not.exist(err);
+      helpers.createAndJoinWallet(clients, 1, 2, {
+        singleAddress: true
+      }, function(wallet) {
         done();
-      });
-    });
-    it('should set noPrivacy property when seeding credentials', function() {
-      var initFunctions = [
-
-        function(client, noPrivacy) {
-          var opts = {};
-          if (noPrivacy) opts.noPrivacy = true;
-          client.seedFromRandomWithMnemonic(opts);
-        },
-        function(client, noPrivacy) {
-          var opts = {};
-          if (noPrivacy) opts.noPrivacy = true;
-          client.seedFromExtendedPublicKey('xpub661MyMwAqRbcGVyYUcHbZi9KNhN9Tdj8qHi9ZdoUXP1VeKiXDGGrE9tSoJKYhGFE2rimteYdwvoP6e87zS5LsgcEvsvdrpPBEmeWz9EeAUq', 'ledger', '1a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f001a1f00', opts);
-        },
-        function(client, noPrivacy) {
-          var opts = {};
-          if (noPrivacy) opts.noPrivacy = true;
-          client.seedFromExtendedPrivateKey('xprv9s21ZrQH143K2KpXBsKoLSxrwvtcWkXm7rSTohmYTdiLKdVGZiYSmhVPCb9JiX9jtRSdkwzK6dXcjbeSe6idbvrTGrizW262LB3JoLLKpan', opts);
-        }
-      ];
-      _.each(initFunctions, function(fn) {
-        _.each([false, true], function(noPrivacy) {
-          var client = new Client();
-          fn(client, noPrivacy);
-          client.credentials.noPrivacy.should.equal(noPrivacy);
-        });
       });
     });
     it('should always return same address', function(done) {
@@ -5230,10 +5248,16 @@ describe('client API', function() {
           should.exist(y);
           y.path.should.equal('m/0/0');
           y.address.should.equal(x.address);
-          clients[0].getMainAddresses({}, function(err, addr) {
+          clients[1].createAddress(function(err, z) {
             should.not.exist(err);
-            addr.length.should.equal(1);
-            done();
+            should.exist(z);
+            z.path.should.equal('m/0/0');
+            z.address.should.equal(x.address);
+            clients[0].getMainAddresses({}, function(err, addr) {
+              should.not.exist(err);
+              addr.length.should.equal(1);
+              done();
+            });
           });
         });
       });
@@ -5242,7 +5266,7 @@ describe('client API', function() {
       clients[0].createAddress(function(err, address) {
         should.not.exist(err);
         should.exist(address.address);
-        blockchainExplorerMock.setUtxo(address, 2, 2);
+        blockchainExplorerMock.setUtxo(address, 2, 1);
 
         var toAddress = 'n2TBMPzPECGUfcT2EByiTJ12TPZkhN2mN5';
         var opts = {
