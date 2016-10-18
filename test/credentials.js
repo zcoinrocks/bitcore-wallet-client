@@ -33,13 +33,13 @@ describe('Credentials', function() {
     it('should return path for livenet', function() {
       var c = Credentials.create('livenet');
       var path = c.getBaseAddressDerivationPath();
-      path.should.equal("m/44'/0'/0'");
+      path.should.equal("m/44'/135'/0'");
     });
     it('should return path for testnet account 2', function() {
       var c = Credentials.create('testnet');
       c.account = 2;
       var path = c.getBaseAddressDerivationPath();
-      path.should.equal("m/44'/1'/2'");
+      path.should.equal("m/44'/135'/2'");
     });
     it('should return path for BIP45', function() {
       var c = Credentials.create('livenet');
@@ -100,7 +100,7 @@ describe('Credentials', function() {
       c.account.should.equal(0);
       c.derivationStrategy.should.equal('BIP44');
       c.xPubKey.should.equal('xpub6BosfCnifzxcFwrSzQiqu2DBVTshkCXacvNsWGYJVVhhawA7d4R5WSWGFNbi8Aw6ZRc1brxMyWMzG3DSSSSoekkudhUd9yLb6qx39T9nMdj');
-      c.getBaseAddressDerivationPath().should.equal("m/44'/0'/0'");
+      c.getBaseAddressDerivationPath().should.equal("m/44'/135'/0'");
     });
 
     it('Should create credentials from mnemonic BIP48', function() {
@@ -120,7 +120,7 @@ describe('Credentials', function() {
       c.xPrivKey.should.equal('xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu');
       c.account.should.equal(1);
       c.xPubKey.should.equal('xpub6BosfCnifzxcJJ1wYuntGJfF2zPJkDeG9ELNHcKNjezuea4tumswN9sH1psMdSVqCMoJC21Bv8usSeqSP4Sp1tLzW7aY59fGn9GCYzx5UTo');
-      c.getBaseAddressDerivationPath().should.equal("m/44'/0'/1'");
+      c.getBaseAddressDerivationPath().should.equal("m/44'/135'/1'");
     });
 
     it('Should create credentials from mnemonic with undefined/null passphrase', function() {
