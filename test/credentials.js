@@ -33,13 +33,13 @@ describe('Credentials', function() {
     it('should return path for livenet', function() {
       var c = Credentials.create('livenet');
       var path = c.getBaseAddressDerivationPath();
-      path.should.equal("m/44'/135'/0'");
+      path.should.equal("m/44'/136'/0'");
     });
     it('should return path for testnet account 2', function() {
       var c = Credentials.create('testnet');
       c.account = 2;
       var path = c.getBaseAddressDerivationPath();
-      path.should.equal("m/44'/135'/2'");
+      path.should.equal("m/44'/136'/2'");
     });
     it('should return path for BIP45', function() {
       var c = Credentials.create('livenet');
